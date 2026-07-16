@@ -1,0 +1,16 @@
+# Secrets (jangan commit)
+.env
+*.env
+
+# Logs
+*.log
+*.err
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.pyc
