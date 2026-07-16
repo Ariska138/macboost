@@ -5,6 +5,57 @@
 > Tujuannya: jadi referensi & dasar pengembangan tool otomasi selanjutnya
 > (misal monitoring Telegram di `mac-optimizer/`).
 
+## 0. Setup SSH & Git Identity (multi-akun)
+
+Mac ini punya 2 identitas GitHub: `ariska138@gmail.com` (default) & `dev@finlup.id`.
+Konfigurasi sudah di-setup agar otomatis benar per folder.
+
+### 0.1 `~/.ssh/config` (pilih key per host)
+```
+# Default -> ariska138@gmail.com
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  UseKeychain yes
+  IdentitiesOnly yes
+
+# Alias eksplisit ariska
+Host github.com-ariska
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  UseKeychain yes
+  IdentitiesOnly yes
+
+# dev@finlup.id
+Host github.com-finlup
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_finlup
+  UseKeychain yes
+  IdentitiesOnly yes
+```
+- `UseKeychain yes` → passphrase diingat, tidak minta tiap push.
+- Untuk repo finlup, remote pakai alias: `git@github.com-finlup:finlupid/<repo>.git`.
+
+### 0.2 Git per-folder identity (`~/.gitconfig` + includeIf)
+Global default = `ariska138@gmail.com`. Tambahan di `~/.gitconfig`:
+```
+[includeIf "gitdir:~/Projects/Ariska/"]
+  path = ~/.gitconfig-ariska
+[includeIf "gitdir:~/Projects/Finlup/"]
+  path = ~/.gitconfig-finlup
+```
+- `~/.gitconfig-ariska` → `ariska138@gmail.com` / `Ariska Hidayat`
+- `~/.gitconfig-finlup` → `dev@finlup.id` / `finlup`
+- Efek: folder `~/Projects/Finlup/**` otomatis commit pakai email finlup.
+
+### 0.3 Catatan keamanan
+- **JANGAN** kirim Telegram Bot Token ke chat LLM (pernah ke-expose, harus di-revoke
+  via @BotFather). Simpan di `.env` (gitignored), bukan di-commit.
+- Private key tetap lokal; hanya public key yang didaftarkan ke GitHub.
+
 ## 1. Profil Hardware & Constraint
 
 - Model: MacBookAir7,2 — Intel Core i5 dual-core 1.8GHz, 2 core (HT).
