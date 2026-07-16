@@ -267,7 +267,13 @@ def _self_names() -> set[str]:
 
 
 def kill_all_apps() -> str:
-    """Matikan SEMUA app GUI yang jalan, kecuali app terproteksi & bot sendiri."""
+    """Matikan SEMUA app GUI yang jalan, kecuali app terproteksi & bot sendiri.
+
+    Pakai `killall` (macOS) sebagai metode utama karena lebih handal dari
+    osascript saat app hang, lalu `pkill -f` sebagai fallback.
+    """
+    import time
+
     running = get_running_apps()
     self_names = _self_names()
     killed = []
@@ -276,18 +282,21 @@ def kill_all_apps() -> str:
             continue
         if app in self_names:
             continue
-        try:
-            _run(f'osascript -e \'quit app "{app}"\'')
-            killed.append(app)
-        except Exception:
-            pass
-    # fallback: pkill app yang masih jalan (exclude bot & sistem)
-    import time
+        if "macboost" in app.lower():
+            continue
+        # metode 1: killall (nama app tanpa path)
+        base = app.split("/")[-1].replace(".app", "")
+        _run(f'killall "{base}" 2>/dev/null')
+        # metode 2: pkill fallback (by name)
+        _run(f'pkill -f "{app}" 2>/dev/null')
+        killed.append(app)
     time.sleep(2)
+    # cleanup: pkill lagi untuk yang masih ngeyel
     for app in killed:
         if _is_protected(app):
             continue
-        _run(f'pkill -f "{app}"')
+        base = app.split("/")[-1].replace(".app", "")
+        _run(f'pkill -9 -f "{base}" 2>/dev/null')
     if killed:
         return "🧹 Dimatikan:\n" + "\n".join(f"• {a}" for a in killed)
     return "(tidak ada app GUI lain yang jalan)"

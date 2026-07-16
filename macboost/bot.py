@@ -111,6 +111,7 @@ class Bot:
         self.offset = 0
         self._last_battery = 100
         self._last_temp = 0.0
+        self._last_temp_alert = 0.0
         self.state = "main"  # 'main'|'info'|'monitor'|'control'
         self._last_msg_id = None  # id pesan menu terakhir yg diedit
 
@@ -177,8 +178,13 @@ class Bot:
         if 0 < m.battery_pct <= BATTERY_ALERT and m.battery_pct < self._last_battery:
             self.send(f"⚠️ *BATTERAI RENDAH*: {m.battery_pct}% ({m.battery_status})", update_last=False)
         self._last_battery = m.battery_pct
-        if m.cpu_temp_c >= TEMP_ALERT and m.cpu_temp_c > self._last_temp:
+        # alert suhu: hanya jika naik melewati ambang, maks 1x per 5 menit
+        now = time.time()
+        if (m.cpu_temp_c >= TEMP_ALERT and m.cpu_temp_c > self._last_temp) or (
+            m.cpu_temp_c >= TEMP_ALERT and now - self._last_temp_alert >= 300
+        ):
             self.send(f"🌡️ *SUHU PANAS*: {m.cpu_temp_c}°C", update_last=False)
+            self._last_temp_alert = now
         self._last_temp = m.cpu_temp_c
 
     def check_update(self):
@@ -314,6 +320,7 @@ class Bot:
         self.send("⏻ *Yakin matikan Mac?*", CONFIRM_KB)
 
     def do_shutdown(self):
+        logger.log("ACT: do_shutdown -> collector.shutdown()")
         self.send("🔌 Mematikan Mac...")
         collector.shutdown()
 
@@ -374,6 +381,7 @@ class Bot:
 
     # ---------- callback (inline) ----------
     def handle_callback(self, data: str, msg_id: int):
+        logger.log(f"CB: {data}")
         if data == "confirm_shutdown":
             self.do_shutdown()
         elif data == "cancel":
