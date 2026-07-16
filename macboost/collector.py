@@ -59,7 +59,8 @@ def get_battery() -> tuple[int, str]:
 
 
 def get_temp() -> float:
-    out = _run("sudo powermetrics -n 1 -s cpu_power 2>/dev/null")
+    # default sampler (tanpa -s) tetap keluarkan "CPU die temperature"
+    out = _run("sudo powermetrics -n 1 2>/dev/null")
     for line in out.splitlines():
         if "CPU die temperature" in line:
             digits = "".join(c for c in line.split(":")[-1] if c.isdigit() or c == ".")
