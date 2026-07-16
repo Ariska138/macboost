@@ -297,3 +297,55 @@ def monitor_apps_text() -> str:
             lines.append(db_line)
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+# ----- Git update checker -----
+def git_repo_dir() -> str:
+    """Return direktori repo git (parent macboost/)."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_local_commit() -> str:
+    out = _run(f'cd "{git_repo_dir()}" && git rev-parse HEAD').strip()
+    return out or "?"
+
+
+def get_remote_commit() -> str:
+    out = _run(f'cd "{git_repo_dir()}" && git rev-parse origin/main').strip()
+    return out or "?"
+
+
+def fetch_remote() -> None:
+    _run(f'cd "{git_repo_dir()}" && git fetch origin --quiet 2>/dev/null')
+
+
+def check_update() -> dict:
+    """Cek apakah ada commit baru di remote vs lokal.
+
+    Return: {"behind": bool, "local": str, "remote": str, "commits": int}
+    """
+    fetch_remote()
+    local = get_local_commit()
+    remote = get_remote_commit()
+    behind = False
+    commits = 0
+    if local and remote and local != remote:
+        behind = True
+        revs = _run(
+            f'cd "{git_repo_dir()}" && git rev-list --count {local}..{remote}'
+        ).strip()
+        try:
+            commits = int(revs)
+        except ValueError:
+            commits = 0
+    return {"behind": behind, "local": local, "remote": remote, "commits": commits}
+
+
+def update_summary() -> str:
+    """Ambil ringkasan commit baru (subject tiap commit)."""
+    local = get_local_commit()
+    remote = get_remote_commit()
+    out = _run(
+        f'cd "{git_repo_dir()}" && git log --oneline {local}..{remote}'
+    ).strip()
+    return out or "(tidak ada info)"

@@ -29,10 +29,18 @@ def main():
         print("ERROR: MACTMON_CHAT_ID kosong di .env — wajib diisi (1 device = 1 chat).")
         sys.exit(1)
 
+    from .bot import acquire_lock, release_lock
+    if not acquire_lock():
+        print("ERROR: bot sudah jalan di instance lain (lock file). Exit.")
+        sys.exit(1)
+
     mode = sys.argv[1] if len(sys.argv) > 1 else "bot"
 
     if mode == "bot":
-        Bot(token, chat_id).run()
+        try:
+            Bot(token, chat_id).run()
+        finally:
+            release_lock()
     elif mode == "web":
         port = int(_env("MACBOOST_WEB_PORT", "8080"))
         print(f"Dashboard: http://127.0.0.1:{port}")
