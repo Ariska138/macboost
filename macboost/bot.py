@@ -1,4 +1,9 @@
-"""Telegram bot handler for MacBoost with interactive menu."""
+"""Telegram bot handler for MacBoost with interactive reply-keyboard menu.
+
+Setiap klik menu meng-edit pesan terakhir (text + reply keyboard) sehingga
+keyboard berubah-ubah sesuai state, dan tiap sub-menu punya tombol
+🔙 Kembali ke menu utama.
+"""
 from __future__ import annotations
 
 import time
@@ -12,12 +17,13 @@ COMMAND_TIMEOUT = 30
 BATTERY_ALERT = 20
 TEMP_ALERT = 80
 
-# ----- Reply keyboard (menu navigasi persisten) -----
+# ----- Reply keyboard per state -----
 MAIN_KEYBOARD = {
     "keyboard": [
         ["📊 Status", "ℹ️ Info Laptop"],
         ["🖥️ Monitoring App", "🧹 Kill App Berat"],
-        ["⚙️ Kontrol", "❓ Help"],
+        ["🔄 Update", "⚙️ Kontrol"],
+        ["❓ Help"],
     ],
     "resize_keyboard": True,
     "one_time_keyboard": False,
@@ -25,6 +31,16 @@ MAIN_KEYBOARD = {
 
 BACK_KEYBOARD = {
     "keyboard": [["🔙 Kembali"]],
+    "resize_keyboard": True,
+}
+
+INFO_KEYBOARD = {
+    "keyboard": [["🔄 Refresh", "🔙 Kembali"]],
+    "resize_keyboard": True,
+}
+
+MONITOR_KEYBOARD = {
+    "keyboard": [["🔄 Refresh", "🔙 Kembali"]],
     "resize_keyboard": True,
 }
 
@@ -55,7 +71,8 @@ class Bot:
         self.offset = 0
         self._last_battery = 100
         self._last_temp = 0.0
-        self.state = {}  # chat_id -> 'main'|'control'|'info'
+        self.state = "main"  # 'main'|'info'|'monitor'|'control'
+        self._last_msg_id = None  # id pesan menu terakhir yg diedit
 
     # ---------- send helpers ----------
     def send(self, text: str, reply_markup=None, parse="Markdown"):
@@ -63,7 +80,11 @@ class Bot:
         if reply_markup:
             data["reply_markup"] = reply_markup
         try:
-            requests.post(f"{self.api}/sendMessage", json=data, timeout=10)
+            r = requests.post(f"{self.api}/sendMessage", json=data, timeout=10)
+            try:
+                self._last_msg_id = r.json().get("result", {}).get("message_id")
+            except Exception:
+                pass
         except Exception as e:
             print(f"[send error] {e}")
 
@@ -76,9 +97,19 @@ class Bot:
         except Exception as e:
             print(f"[edit error] {e}")
 
+    def edit_menu(self, text: str, reply_markup):
+        """Edit pesan menu terakhir (atau kirim baru jika belum ada)."""
+        if self._last_msg_id:
+            self.edit(self._last_msg_id, text, reply_markup)
+        else:
+            self.send(text, reply_markup)
+
     def show_main(self, text: str = "📋 *MENU UTAMA* — pilih:"):
-        self.state[self.chat_id] = "main"
-        self.send(text, MAIN_KEYBOARD)
+        self.state = "main"
+        if self._last_msg_id:
+            self.edit(self._last_msg_id, text, MAIN_KEYBOARD)
+        else:
+            self.send(text, MAIN_KEYBOARD)
 
     # ---------- alerts ----------
     def check_alerts(self):
@@ -89,6 +120,21 @@ class Bot:
         if m.cpu_temp_c >= TEMP_ALERT and m.cpu_temp_c > self._last_temp:
             self.send(f"🌡️ *SUHU PANAS*: {m.cpu_temp_c}°C")
         self._last_temp = m.cpu_temp_c
+
+    def check_update(self):
+        try:
+            res = collector.check_update()
+        except Exception as e:
+            print(f"[update check error] {e}")
+            return
+        if res["behind"]:
+            summary = collector.update_summary()
+            self.send(
+                f"📦 *UPDATE TERSEDIA*\n"
+                f"{res['commits']} commit baru di remote:\n"
+                f"```{summary}```\n"
+                f"Jalankan `git pull` di Mac untuk update."
+            )
 
     # ---------- text builders ----------
     def status_text(self) -> str:
@@ -134,30 +180,63 @@ class Bot:
             "*MacBoost Bot*\n"
             "Gunakan tombol menu di bawah untuk navigasi.\n"
             "Perintah cepat:\n"
-            "/status /info /monitor /kill <app> /killall /shutdown /restart"
+            "/status /info /monitor /update /kill <app> /killall /shutdown /restart"
         )
 
-    # ---------- menu actions ----------
+    # ---------- menu actions (edit pesan terakhir) ----------
     def act_status(self):
-        self.send(self.status_text(), MAIN_KEYBOARD)
+        self.edit_menu(self.status_text(), MAIN_KEYBOARD)
 
     def act_info(self):
-        self.state[self.chat_id] = "info"
-        self.send(self.info_text(), BACK_KEYBOARD)
+        self.state = "info"
+        self.edit_menu(self.info_text(), INFO_KEYBOARD)
 
     def act_control(self):
-        self.state[self.chat_id] = "control"
-        self.send(
+        self.state = "control"
+        self.edit_menu(
             "⚙️ *KONTROL*\nPilih aksi (hati-hati dengan shutdown/restart):",
             CONTROL_KEYBOARD,
         )
 
     def act_killall(self):
-        self.send("🧹 " + collector.kill_all_heavy(), MAIN_KEYBOARD)
+        self.send("🧹 " + collector.kill_all_heavy())
+        # tetap di menu control
+        self.edit_menu(
+            "⚙️ *KONTROL*\nPilih aksi (hati-hati dengan shutdown/restart):",
+            CONTROL_KEYBOARD,
+        )
 
     def act_monitor(self):
-        self.state[self.chat_id] = "monitor"
-        self.send(collector.monitor_apps_text(), BACK_KEYBOARD)
+        self.state = "monitor"
+        self.edit_menu(collector.monitor_apps_text(), MONITOR_KEYBOARD)
+
+    def act_update(self):
+        res = collector.check_update()
+        if res["behind"]:
+            summary = collector.update_summary()
+            self.edit_menu(
+                f"📦 *UPDATE TERSEDIA*\n"
+                f"{res['commits']} commit baru:\n"
+                f"```{summary}```",
+                MAIN_KEYBOARD,
+            )
+        else:
+            self.edit_menu(
+                f"✅ *SUDAH TERBARU*\nLokal: `{res['local'][:7]}`\nRemote: `{res['remote'][:7]}`",
+                MAIN_KEYBOARD,
+            )
+
+    def act_refresh(self):
+        if self.state == "info":
+            self.edit_menu(self.info_text(), INFO_KEYBOARD)
+        elif self.state == "monitor":
+            self.edit_menu(collector.monitor_apps_text(), MONITOR_KEYBOARD)
+        else:
+            m = collector.collect()
+            self.edit_menu(
+                f"🔄 Refresh:\nBaterai {m.battery_pct}% | Load {m.load_avg}",
+                MAIN_KEYBOARD,
+            )
 
     def ask_shutdown(self):
         self.send("⏻ *Yakin matikan Mac?*", CONFIRM_KB)
@@ -173,8 +252,13 @@ class Bot:
     # ---------- text router ----------
     def handle_text(self, text: str):
         t = text.strip()
-        # perintah slash tetap didukung
         low = t.lower()
+
+        # back selalu prioritas
+        if t == "🔙 kembali":
+            self.show_main()
+            return
+
         if low in ("/start", "/help", "help", "❓ help"):
             self.show_main(self.help_text())
             return
@@ -184,29 +268,27 @@ class Bot:
             self.act_info(); return
         if low in ("/monitor", "🖥️ monitoring app"):
             self.act_monitor(); return
+        if low in ("/update", "🔄 update"):
+            self.act_update(); return
         if low in ("/killall", "🧹 kill app berat"):
             self.act_killall(); return
         if low in ("⚙️ kontrol",):
             self.act_control(); return
         if low in ("🔄 refresh", "/refresh"):
-            m = collector.collect()
-            self.send(f"🔄 Refresh:\nBaterai {m.battery_pct}% | Load {m.load_avg}", MAIN_KEYBOARD)
-            return
-        if t == "🔙 kembali":
-            self.show_main(); return
+            self.act_refresh(); return
         if t == "⏻ shutdown":
             self.ask_shutdown(); return
         if t == "🔄 restart":
             self.do_restart(); self.show_main(); return
         if t == "🧹 kill semua app":
-            self.act_killall(); self.act_control(); return
+            self.act_killall(); return
         # kill <app> manual
         if low.startswith("/kill ") or t.lower().startswith("kill "):
             arg = t.split(" ", 1)[1].strip() if " " in t else ""
             if arg:
-                self.send("✅ " + collector.kill_app(arg), MAIN_KEYBOARD)
+                self.send("✅ " + collector.kill_app(arg))
             else:
-                self.send("Format: `kill <nama app>`", MAIN_KEYBOARD)
+                self.send("Format: `kill <nama app>`")
             return
         # default
         self.send("Perintah tidak dikenal. Pakai tombol menu atau /help.", MAIN_KEYBOARD)
@@ -253,7 +335,12 @@ class Bot:
     def run(self):
         self.send("🤖 *MacBoost aktif.*", MAIN_KEYBOARD)
         self.show_main()
+        last_update_check = 0.0
         while True:
             self.check_alerts()
+            now = time.time()
+            if now - last_update_check >= 300:  # cek update tiap 5 menit
+                self.check_update()
+                last_update_check = now
             self.poll()
             time.sleep(POLL_INTERVAL)
