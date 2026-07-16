@@ -222,6 +222,64 @@ def kill_all_heavy() -> str:
     return "\n".join(msgs) if msgs else "(tidak ada app berat jalan)"
 
 
+# App yang tidak boleh dikill (biarkan tetap jalan)
+PROTECTED_APPS = [
+    "Finder",
+    "SystemUIServer",
+    "Dock",
+    "WindowServer",
+    "Spotlight",
+    "NotificationCenter",
+    "ControlCenter",
+    "TouchBarServer",
+    "OpenCode",  # jangan matikan host editor? opsional
+]
+
+
+def _self_names() -> set[str]:
+    """Nama process milik bot ini agar tidak ikut kekill."""
+    import sys
+    names = set()
+    exe = sys.executable or ""
+    if exe:
+        names.add(exe.rsplit("/", 1)[-1])  # misal python
+    # semua process yang jalanin macboost.cli
+    out = _run("pgrep -fl 'macboost.cli'")
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            names.add(parts[1].strip())
+    return names
+
+
+def kill_all_apps() -> str:
+    """Matikan SEMUA app GUI yang jalan, kecuali app terproteksi & bot sendiri."""
+    running = get_running_apps()
+    self_names = _self_names()
+    killed = []
+    for app in running:
+        if app in PROTECTED_APPS:
+            continue
+        if app in self_names:
+            continue
+        # jangan kill process yang merupakan bot ini
+        if "macboost" in app.lower():
+            continue
+        try:
+            _run(f'osascript -e \'quit app "{app}"\'')
+            killed.append(app)
+        except Exception:
+            pass
+    # fallback: pkill app yang masih jalan (exclude bot)
+    import time
+    time.sleep(2)
+    for app in killed:
+        _run(f'pkill -f "{app}"')
+    if killed:
+        return "🧹 Dimatikan:\n" + "\n".join(f"• {a}" for a in killed)
+    return "(tidak ada app GUI lain yang jalan)"
+
+
 def shutdown() -> None:
     _run("sudo shutdown -h now")
 

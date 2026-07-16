@@ -50,7 +50,7 @@ MONITOR_KEYBOARD = {
 CONTROL_KEYBOARD = {
     "keyboard": [
         ["⏻ Shutdown", "🔄 Restart"],
-        ["🧹 Kill Semua App", "🔙 Kembali"],
+        ["🧹 Kill SEMUA App", "🔙 Kembali"],
     ],
     "resize_keyboard": True,
 }
@@ -264,7 +264,7 @@ class Bot:
 
     def act_killall(self):
         self.processing()
-        self.send("🧹 " + collector.kill_all_heavy())
+        self.send(collector.kill_all_apps())
         # tetap di menu control
         self.edit_menu(
             "⚙️ *KONTROL*\nPilih aksi (hati-hati dengan shutdown/restart):",
