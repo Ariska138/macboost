@@ -43,6 +43,7 @@ chmod +x install.sh uninstall.sh
 Perintah di Telegram:
 - `/status` — laporan lengkap
 - `/info` — info detail laptop: CPU, baterai (cycle/condition), suhu, RAM, storage, network (IP lokal/publik), app jalan, service/daemon
+- `/monitor` — monitoring aplikasi OpenCode, Brave Browser, & Zed (status ON/OFF, PID, CPU/RAM, info SQLite DB)
 - `/kill <app>` — matikan app (misal `/kill OpenCode`)
 - `/killall` — matikan app berat (OpenCode, Brave, WhatsApp)
 - `/shutdown` — matikan Mac
@@ -61,14 +62,28 @@ python -m macboost.cli status  # cek status sekali
 
 ```
 macboost/
-  collector.py   # ambil metrik macOS + kill/shutdown
-  bot.py         # handler Telegram (poll + inline keyboard)
+  collector.py   # ambil metrik macOS + kill/shutdown + monitoring app/SQLite
+  bot.py         # handler Telegram (poll + inline keyboard + menu monitoring)
   web.py         # Flask dashboard lokal
   cli.py         # entrypoint
 docs/            # tips optimasi & setup multi-akun Git
 install.sh       # installer + LaunchAgent + sudoers
 uninstall.sh
 ```
+
+## Monitoring Aplikasi (OpenCode / Brave / Zed)
+
+Menu **🖥️ Monitoring App** (atau `/monitor`) menampilkan:
+- Status ON/OFF + PID tiap app
+- Penggunaan CPU & RAM (via `ps`)
+- Info SQLite DB tiap app: ukuran file + jumlah tabel (jika `sqlite3` tersedia)
+
+Lokasi DB yang dicek:
+- **OpenCode**: `~/.config/opencode/opencode.db`
+- **Brave Browser**: `~/Library/Application Support/BraveSoftware/Brave-Browser/Default/History`
+- **Zed**: `~/.config/zed/zed.db`
+
+Untuk info tabel SQLite, pastikan `sqlite3` CLI terinstall (`brew install sqlite`).
 
 ## Lisensi
 

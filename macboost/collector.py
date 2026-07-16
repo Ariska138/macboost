@@ -1,6 +1,7 @@
 """System metrics collector for macOS."""
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -15,6 +16,25 @@ class Metrics:
 
 
 HEAVY_APPS = ["OpenCode", "Brave Browser", "WhatsApp"]
+
+# Aplikasi yang dimonitor khusus (OpenCode, Brave, Zed)
+MONITORED_APPS = ["OpenCode", "Brave Browser", "Zed"]
+
+# Lokasi umum SQLite DB per aplikasi (diikuti urutan pencarian)
+APP_DB_PATHS = {
+    "OpenCode": [
+        os.path.expanduser("~/.config/opencode/opencode.db"),
+        os.path.expanduser("~/.opencode.db"),
+    ],
+    "Brave Browser": [
+        os.path.expanduser("~/Library/Application Support/BraveSoftware/Brave-Browser/Default/History"),
+        os.path.expanduser("~/Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks"),
+    ],
+    "Zed": [
+        os.path.expanduser("~/Library/Application Support/Zed/settings.json"),
+        os.path.expanduser("~/.config/zed/zed.db"),
+    ],
+}
 
 
 def _run(cmd: str) -> str:
@@ -207,3 +227,73 @@ def shutdown() -> None:
 
 def restart() -> None:
     _run("sudo shutdown -r now")
+
+
+def sqlite_info(path: str) -> str:
+    """Ambil info ringkas SQLite DB: ukuran + jumlah tabel (bila sqlite3 ada)."""
+    if not os.path.exists(path):
+        return "tidak ada"
+    size = os.path.getsize(path)
+    size_kb = size / 1024
+    if size_kb >= 1024:
+        size_str = f"{size_kb / 1024:.1f} MB"
+    else:
+        size_str = f"{size_kb:.1f} KB"
+    info = f"{size_str}"
+    try:
+        out = _run(f'sqlite3 "{path}" ".tables"')
+        tables = [t for t in out.split() if t]
+        if tables:
+            info += f" | {len(tables)} tabel"
+    except Exception:
+        pass
+    return info
+
+
+def monitor_app(app_name: str) -> dict:
+    """Kumpulkan status + info SQLite untuk satu aplikasi yang dimonitor."""
+    running = app_running(app_name)
+    pid = _run(f'pgrep -f "{app_name}"').strip().split("\n")[0] if running else ""
+    cpu_mem = ""
+    if pid:
+        # ambil %CPU & RSS (bytes) dari ps
+        ps = _run(f"ps -o %cpu,rss -p {pid} 2>/dev/null").strip().splitlines()
+        if len(ps) > 1:
+            parts = ps[1].split()
+            if len(parts) == 2:
+                cpu = parts[0]
+                rss_mb = int(parts[1]) / 1024
+                cpu_mem = f"CPU {cpu}% | RAM {rss_mb:.0f} MB"
+    dbs = []
+    for p in APP_DB_PATHS.get(app_name, []):
+        dbs.append((os.path.basename(p), sqlite_info(p)))
+    return {
+        "name": app_name,
+        "running": running,
+        "pid": pid,
+        "cpu_mem": cpu_mem,
+        "dbs": dbs,
+    }
+
+
+def monitor_apps() -> list[dict]:
+    """Return list status semua aplikasi yang dimonitor."""
+    return [monitor_app(a) for a in MONITORED_APPS]
+
+
+def monitor_apps_text() -> str:
+    """Format laporan monitoring ke teks Markdown."""
+    lines = ["🖥️ *MONITORING APLIKASI*\n"]
+    for d in monitor_apps():
+        status = "🟢 ON " if d["running"] else "⚪ OFF"
+        head = f"{status} *{d['name']}*"
+        if d["running"] and d["pid"]:
+            head += f" (PID {d['pid']})"
+        lines.append(head)
+        if d["running"] and d["cpu_mem"]:
+            lines.append(f"   └ {d['cpu_mem']}")
+        if d["dbs"]:
+            db_line = "   └ DB: " + " | ".join(f"{n}: {i}" for n, i in d["dbs"])
+            lines.append(db_line)
+        lines.append("")
+    return "\n".join(lines).rstrip()

@@ -1,7 +1,6 @@
-"""Telegram bot handler for MacBoost."""
+"""Telegram bot handler for MacBoost with interactive menu."""
 from __future__ import annotations
 
-import os
 import time
 
 import requests
@@ -13,20 +12,39 @@ COMMAND_TIMEOUT = 30
 BATTERY_ALERT = 20
 TEMP_ALERT = 80
 
+# ----- Reply keyboard (menu navigasi persisten) -----
+MAIN_KEYBOARD = {
+    "keyboard": [
+        ["📊 Status", "ℹ️ Info Laptop"],
+        ["🖥️ Monitoring App", "🧹 Kill App Berat"],
+        ["⚙️ Kontrol", "❓ Help"],
+    ],
+    "resize_keyboard": True,
+    "one_time_keyboard": False,
+}
 
-def _keyboard():
-    kb = [
+BACK_KEYBOARD = {
+    "keyboard": [["🔙 Kembali"]],
+    "resize_keyboard": True,
+}
+
+CONTROL_KEYBOARD = {
+    "keyboard": [
+        ["⏻ Shutdown", "🔄 Restart"],
+        ["🧹 Kill Semua App", "🔙 Kembali"],
+    ],
+    "resize_keyboard": True,
+}
+
+# Inline keyboard untuk konfirmasi aksi berisiko
+CONFIRM_KB = {
+    "inline_keyboard": [
         [
-            {"text": "📊 Status", "callback_data": "status"},
-            {"text": "ℹ️ Info", "callback_data": "info"},
-        ],
-        [
-            {"text": "🧹 Kill All", "callback_data": "killall"},
-            {"text": "⏻ Shutdown", "callback_data": "shutdown"},
-            {"text": "🔄 Restart", "callback_data": "restart"},
-        ],
+            {"text": "✅ Ya", "callback_data": "confirm_shutdown"},
+            {"text": "❌ Batal", "callback_data": "cancel"},
+        ]
     ]
-    return {"inline_keyboard": kb}
+}
 
 
 class Bot:
@@ -37,9 +55,11 @@ class Bot:
         self.offset = 0
         self._last_battery = 100
         self._last_temp = 0.0
+        self.state = {}  # chat_id -> 'main'|'control'|'info'
 
-    def send(self, text: str, reply_markup=None):
-        data = {"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}
+    # ---------- send helpers ----------
+    def send(self, text: str, reply_markup=None, parse="Markdown"):
+        data = {"chat_id": self.chat_id, "text": text, "parse_mode": parse}
         if reply_markup:
             data["reply_markup"] = reply_markup
         try:
@@ -47,6 +67,20 @@ class Bot:
         except Exception as e:
             print(f"[send error] {e}")
 
+    def edit(self, msg_id: int, text: str, reply_markup=None):
+        data = {"chat_id": self.chat_id, "message_id": msg_id, "text": text, "parse_mode": "Markdown"}
+        if reply_markup:
+            data["reply_markup"] = reply_markup
+        try:
+            requests.post(f"{self.api}/editMessageText", json=data, timeout=10)
+        except Exception as e:
+            print(f"[edit error] {e}")
+
+    def show_main(self, text: str = "📋 *MENU UTAMA* — pilih:"):
+        self.state[self.chat_id] = "main"
+        self.send(text, MAIN_KEYBOARD)
+
+    # ---------- alerts ----------
     def check_alerts(self):
         m = collector.collect()
         if 0 < m.battery_pct <= BATTERY_ALERT and m.battery_pct < self._last_battery:
@@ -56,6 +90,7 @@ class Bot:
             self.send(f"🌡️ *SUHU PANAS*: {m.cpu_temp_c}°C")
         self._last_temp = m.cpu_temp_c
 
+    # ---------- text builders ----------
     def status_text(self) -> str:
         m = collector.collect()
         return (
@@ -66,25 +101,12 @@ class Bot:
             f"App berat: {', '.join(m.heavy_apps) or 'none'}"
         )
 
-    def help_text(self) -> str:
-        return (
-            "*MacBoost Bot*\n"
-            "/status - laporan baterai/suhu/beban\n"
-            "/info - info detail laptop (storage, RAM, app, service, jaringan)\n"
-            "/kill <app> - matikan app\n"
-            "/killall - matikan app berat\n"
-            "/shutdown - matikan Mac\n"
-            "/restart - restart Mac\n"
-            "Atau pakai tombol di bawah."
-        )
-
     def info_text(self) -> str:
-        from . import collector
         d = collector.collect_full()
         apps = ", ".join(d["running_apps"][:15]) or "none"
         if len(d["running_apps"]) > 15:
             apps += f" …(+{len(d['running_apps'])-15})"
-        svcs = ", ".join(s.split(".")[-2] if "." in s else s
+        svcs = ", ".join((s.split(".")[-2] if "." in s else s)
                          for s in d["running_services"][:12]) or "none"
         if len(d["running_services"]) > 12:
             svcs += f" …(+{len(d['running_services'])-12})"
@@ -107,47 +129,100 @@ class Bot:
             f"⚙️ Service ({len(d['running_services'])}): {svcs}"
         )
 
+    def help_text(self) -> str:
+        return (
+            "*MacBoost Bot*\n"
+            "Gunakan tombol menu di bawah untuk navigasi.\n"
+            "Perintah cepat:\n"
+            "/status /info /monitor /kill <app> /killall /shutdown /restart"
+        )
+
+    # ---------- menu actions ----------
+    def act_status(self):
+        self.send(self.status_text(), MAIN_KEYBOARD)
+
+    def act_info(self):
+        self.state[self.chat_id] = "info"
+        self.send(self.info_text(), BACK_KEYBOARD)
+
+    def act_control(self):
+        self.state[self.chat_id] = "control"
+        self.send(
+            "⚙️ *KONTROL*\nPilih aksi (hati-hati dengan shutdown/restart):",
+            CONTROL_KEYBOARD,
+        )
+
+    def act_killall(self):
+        self.send("🧹 " + collector.kill_all_heavy(), MAIN_KEYBOARD)
+
+    def act_monitor(self):
+        self.state[self.chat_id] = "monitor"
+        self.send(collector.monitor_apps_text(), BACK_KEYBOARD)
+
+    def ask_shutdown(self):
+        self.send("⏻ *Yakin matikan Mac?*", CONFIRM_KB)
+
+    def do_shutdown(self):
+        self.send("🔌 Mematikan Mac...")
+        collector.shutdown()
+
+    def do_restart(self):
+        self.send("🔄 Restart Mac...")
+        collector.restart()
+
+    # ---------- text router ----------
     def handle_text(self, text: str):
-        parts = text.split(maxsplit=1)
-        cmd = parts[0].lower()
-        arg = parts[1].strip() if len(parts) > 1 else ""
-
-        if cmd in ("/start", "help", "/help"):
-            self.send(self.help_text(), _keyboard())
-        elif cmd in ("/status", "status"):
-            self.send(self.status_text(), _keyboard())
-        elif cmd in ("/info", "info"):
-            self.send(self.info_text(), _keyboard())
-        elif cmd in ("/kill", "kill"):
-            if not arg:
-                self.send("Pakai: `kill <nama app>`")
+        t = text.strip()
+        # perintah slash tetap didukung
+        low = t.lower()
+        if low in ("/start", "/help", "help", "❓ help"):
+            self.show_main(self.help_text())
+            return
+        if low in ("/status", "📊 status"):
+            self.act_status(); return
+        if low in ("/info", "ℹ️ info laptop"):
+            self.act_info(); return
+        if low in ("/monitor", "🖥️ monitoring app"):
+            self.act_monitor(); return
+        if low in ("/killall", "🧹 kill app berat"):
+            self.act_killall(); return
+        if low in ("⚙️ kontrol",):
+            self.act_control(); return
+        if low in ("🔄 refresh", "/refresh"):
+            m = collector.collect()
+            self.send(f"🔄 Refresh:\nBaterai {m.battery_pct}% | Load {m.load_avg}", MAIN_KEYBOARD)
+            return
+        if t == "🔙 kembali":
+            self.show_main(); return
+        if t == "⏻ shutdown":
+            self.ask_shutdown(); return
+        if t == "🔄 restart":
+            self.do_restart(); self.show_main(); return
+        if t == "🧹 kill semua app":
+            self.act_killall(); self.act_control(); return
+        # kill <app> manual
+        if low.startswith("/kill ") or t.lower().startswith("kill "):
+            arg = t.split(" ", 1)[1].strip() if " " in t else ""
+            if arg:
+                self.send("✅ " + collector.kill_app(arg), MAIN_KEYBOARD)
             else:
-                self.send("✅ " + collector.kill_app(arg))
-        elif cmd in ("/killall", "killall"):
-            self.send("🧹 " + collector.kill_all_heavy())
-        elif cmd in ("/shutdown", "shutdown", "off"):
-            self.send("🔌 Mematikan Mac...")
-            collector.shutdown()
-        elif cmd in ("/restart", "restart"):
-            self.send("🔄 Restart Mac...")
-            collector.restart()
-        else:
-            self.send("Perintah tidak dikenal. Ketik /help.")
+                self.send("Format: `kill <nama app>`", MAIN_KEYBOARD)
+            return
+        # default
+        self.send("Perintah tidak dikenal. Pakai tombol menu atau /help.", MAIN_KEYBOARD)
 
-    def handle_callback(self, data: str):
-        if data == "status":
-            self.send(self.status_text(), _keyboard())
+    # ---------- callback (inline) ----------
+    def handle_callback(self, data: str, msg_id: int):
+        if data == "confirm_shutdown":
+            self.do_shutdown()
+        elif data == "cancel":
+            self.edit(msg_id, "❌ Dibatalkan.", MAIN_KEYBOARD)
+        elif data == "status":
+            self.edit(msg_id, self.status_text())
         elif data == "info":
-            self.send(self.info_text(), _keyboard())
-        elif data == "killall":
-            self.send("🧹 " + collector.kill_all_heavy())
-        elif data == "shutdown":
-            self.send("🔌 Mematikan Mac...")
-            collector.shutdown()
-        elif data == "restart":
-            self.send("🔄 Restart Mac...")
-            collector.restart()
+            self.edit(msg_id, self.info_text())
 
+    # ---------- poll ----------
     def poll(self):
         try:
             r = requests.get(
@@ -168,7 +243,7 @@ class Bot:
             elif "callback_query" in upd:
                 cb = upd["callback_query"]
                 if str(cb.get("message", {}).get("chat", {}).get("id")) == self.chat_id:
-                    self.handle_callback(cb.get("data", ""))
+                    self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
                     requests.post(
                         f"{self.api}/answerCallbackQuery",
                         json={"callback_query_id": cb["id"]},
@@ -176,7 +251,8 @@ class Bot:
                     )
 
     def run(self):
-        self.send("🤖 *MacBoost aktif.* Ketik /help atau pakai tombol.", _keyboard())
+        self.send("🤖 *MacBoost aktif.*", MAIN_KEYBOARD)
+        self.show_main()
         while True:
             self.check_alerts()
             self.poll()
