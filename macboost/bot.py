@@ -169,10 +169,7 @@ class Bot:
 
     def show_main(self, text: str = "📋 *MENU UTAMA* — pilih:"):
         self.state = "main"
-        if self._last_msg_id:
-            self.edit(self._last_msg_id, text, MAIN_KEYBOARD)
-        else:
-            self.send(text, MAIN_KEYBOARD)
+        self.send(text, MAIN_KEYBOARD)
 
     # ---------- alerts ----------
     def check_alerts(self):
