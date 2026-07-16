@@ -4,7 +4,7 @@
 # via Cloudflare Tunnel. Telegram POST langsung ke bot -> respon instan.
 #
 set -e
-REPO_DIR="$(cd "$(dirname "$0") && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR"
 source "$REPO_DIR/.venv/bin/activate"
 
