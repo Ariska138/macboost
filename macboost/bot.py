@@ -76,6 +76,22 @@ class Bot:
         self._last_msg_id = None  # id pesan menu terakhir yg diedit
 
     # ---------- send helpers ----------
+    def typing(self):
+        """Kirim chat action 'typing' sebagai indikator sedang memproses."""
+        try:
+            requests.post(
+                f"{self.api}/sendChatAction",
+                json={"chat_id": self.chat_id, "action": "typing"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.log(f"[typing error] {e}")
+
+    def processing(self):
+        """Edit/menu jadi pesan 'sedang memproses' + kirim indikator typing."""
+        self.typing()
+        self.edit_menu("⏳ *Memproses...*", None)
+
     def send(self, text: str, reply_markup=None, parse="Markdown"):
         data = {"chat_id": self.chat_id, "text": text, "parse_mode": parse}
         if reply_markup:
@@ -186,13 +202,16 @@ class Bot:
 
     # ---------- menu actions (edit pesan terakhir) ----------
     def act_status(self):
+        self.processing()
         self.edit_menu(self.status_text(), MAIN_KEYBOARD)
 
     def act_info(self):
+        self.processing()
         self.state = "info"
         self.edit_menu(self.info_text(), INFO_KEYBOARD)
 
     def act_control(self):
+        self.processing()
         self.state = "control"
         self.edit_menu(
             "⚙️ *KONTROL*\nPilih aksi (hati-hati dengan shutdown/restart):",
@@ -200,6 +219,7 @@ class Bot:
         )
 
     def act_killall(self):
+        self.processing()
         self.send("🧹 " + collector.kill_all_heavy())
         # tetap di menu control
         self.edit_menu(
@@ -208,10 +228,12 @@ class Bot:
         )
 
     def act_monitor(self):
+        self.processing()
         self.state = "monitor"
         self.edit_menu(collector.monitor_apps_text(), MONITOR_KEYBOARD)
 
     def act_update(self):
+        self.processing()
         res = collector.check_update()
         if res["behind"]:
             summary = collector.update_summary()
@@ -228,6 +250,7 @@ class Bot:
             )
 
     def act_refresh(self):
+        self.processing()
         if self.state == "info":
             self.edit_menu(self.info_text(), INFO_KEYBOARD)
         elif self.state == "monitor":
@@ -318,9 +341,16 @@ class Bot:
                 params={"timeout": COMMAND_TIMEOUT, "offset": self.offset},
                 timeout=COMMAND_TIMEOUT + 5,
             )
-            data = r.json()
         except Exception as e:
             logger.log(f"[poll error] {e}")
+            return
+        try:
+            data = r.json()
+        except Exception as e:
+            logger.log(f"[poll json error] {e}")
+            return
+        if not data.get("ok"):
+            logger.log(f"[poll not ok] {data}")
             return
         for upd in data.get("result", []):
             self.offset = upd["update_id"] + 1
@@ -329,10 +359,12 @@ class Bot:
                 if str(chat.get("id")) == self.chat_id:
                     text = upd["message"].get("text", "")
                     logger.log(f"RCV: {text}")
+                    self.typing()
                     self.handle_text(text)
             elif "callback_query" in upd:
                 cb = upd["callback_query"]
                 if str(cb.get("message", {}).get("chat", {}).get("id")) == self.chat_id:
+                    self.typing()
                     self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
                     requests.post(
                         f"{self.api}/answerCallbackQuery",

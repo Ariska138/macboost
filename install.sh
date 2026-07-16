@@ -57,6 +57,13 @@ cat > "$AGENT_PLIST" <<EOF
     <true/>
     <key>WorkingDirectory</key>
     <string>${REPO_DIR}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>${HOME}</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${REPO_DIR}/macboost.log</string>
     <key>StandardErrorPath</key>
