@@ -41,6 +41,24 @@ def main():
             Bot(token, chat_id).run()
         finally:
             release_lock()
+    elif mode == "webhook":
+        from . import webhook as wh
+        wh.init_bot(token, chat_id)
+        port = int(_env("MACBOOST_WEBHOOK_PORT", "8000"))
+        public_url = _env("MACBOOST_PUBLIC_URL", "")
+        # set webhook ke Telegram bila URL publik tersedia
+        if public_url:
+            import requests
+            url = f"https://api.telegram.org/bot{token}/setWebhook"
+            r = requests.post(url, json={"url": f"{public_url.rstrip('/')}/webhook"}, timeout=10)
+            print(f"setWebhook: {r.status_code} {r.text[:120]}")
+        else:
+            print("MACBOOST_PUBLIC_URL kosong — jalankan cloudflared tunnel ke :%d" % port)
+        print(f"Webhook server: http://127.0.0.1:{port}/webhook")
+        try:
+            wh.run_webhook(port=port)
+        finally:
+            release_lock()
     elif mode == "web":
         port = int(_env("MACBOOST_WEB_PORT", "8080"))
         print(f"Dashboard: http://127.0.0.1:{port}")
@@ -63,7 +81,7 @@ def main():
         print(f"Apps ({len(d['running_apps'])}): {d['running_apps']}")
         print(f"Services ({len(d['running_services'])}): {d['running_services']}")
     else:
-        print("Usage: macboost [bot|web|status]")
+        print("Usage: macboost [bot|webhook|web|status]")
 
 
 if __name__ == "__main__":

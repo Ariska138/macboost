@@ -377,6 +377,35 @@ class Bot:
         elif data == "info":
             self.edit(msg_id, self.info_text())
 
+    # ---------- shared update handler (poll & webhook) ----------
+    def handle_update(self, upd: dict) -> None:
+        if "message" in upd:
+            chat = upd["message"].get("chat", {})
+            cid = str(chat.get("id"))
+            if not self._authorized(cid):
+                logger.log(f"BLOCKED msg from unauthorized chat {cid}")
+                return
+            text = upd["message"].get("text", "")
+            logger.log(f"RCV: {text}")
+            self.typing()
+            self.handle_text(text)
+        elif "callback_query" in upd:
+            cb = upd["callback_query"]
+            cid = str(cb.get("message", {}).get("chat", {}).get("id"))
+            if not self._authorized(cid):
+                logger.log(f"BLOCKED callback from unauthorized chat {cid}")
+                return
+            self.typing()
+            self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
+            try:
+                requests.post(
+                    f"{self.api}/answerCallbackQuery",
+                    json={"callback_query_id": cb["id"]},
+                    timeout=10,
+                )
+            except Exception as e:
+                logger.log(f"[answer cb error] {e}")
+
     # ---------- poll ----------
     def poll(self):
         try:
@@ -398,29 +427,7 @@ class Bot:
             return
         for upd in data.get("result", []):
             self.offset = upd["update_id"] + 1
-            if "message" in upd:
-                chat = upd["message"].get("chat", {})
-                cid = str(chat.get("id"))
-                if not self._authorized(cid):
-                    logger.log(f"BLOCKED msg from unauthorized chat {cid}")
-                    continue
-                text = upd["message"].get("text", "")
-                logger.log(f"RCV: {text}")
-                self.typing()
-                self.handle_text(text)
-            elif "callback_query" in upd:
-                cb = upd["callback_query"]
-                cid = str(cb.get("message", {}).get("chat", {}).get("id"))
-                if not self._authorized(cid):
-                    logger.log(f"BLOCKED callback from unauthorized chat {cid}")
-                    continue
-                self.typing()
-                self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
-                requests.post(
-                    f"{self.api}/answerCallbackQuery",
-                    json={"callback_query_id": cb["id"]},
-                    timeout=10,
-                )
+            self.handle_update(upd)
 
     def run(self):
         if not acquire_lock():
