@@ -25,6 +25,10 @@ def main():
         print("Lihat .env.example")
         sys.exit(1)
 
+    if not chat_id:
+        print("ERROR: MACTMON_CHAT_ID kosong di .env — wajib diisi (1 device = 1 chat).")
+        sys.exit(1)
+
     mode = sys.argv[1] if len(sys.argv) > 1 else "bot"
 
     if mode == "bot":

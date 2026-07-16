@@ -75,6 +75,10 @@ class Bot:
         self.state = "main"  # 'main'|'info'|'monitor'|'control'
         self._last_msg_id = None  # id pesan menu terakhir yg diedit
 
+    def _authorized(self, cid: str) -> bool:
+        """Hanya izinkan satu chat_id (satu device/user) dari .env."""
+        return str(cid) == self.chat_id
+
     # ---------- send helpers ----------
     def typing(self):
         """Kirim chat action 'typing' sebagai indikator sedang memproses."""
@@ -356,21 +360,27 @@ class Bot:
             self.offset = upd["update_id"] + 1
             if "message" in upd:
                 chat = upd["message"].get("chat", {})
-                if str(chat.get("id")) == self.chat_id:
-                    text = upd["message"].get("text", "")
-                    logger.log(f"RCV: {text}")
-                    self.typing()
-                    self.handle_text(text)
+                cid = str(chat.get("id"))
+                if not self._authorized(cid):
+                    logger.log(f"BLOCKED msg from unauthorized chat {cid}")
+                    continue
+                text = upd["message"].get("text", "")
+                logger.log(f"RCV: {text}")
+                self.typing()
+                self.handle_text(text)
             elif "callback_query" in upd:
                 cb = upd["callback_query"]
-                if str(cb.get("message", {}).get("chat", {}).get("id")) == self.chat_id:
-                    self.typing()
-                    self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
-                    requests.post(
-                        f"{self.api}/answerCallbackQuery",
-                        json={"callback_query_id": cb["id"]},
-                        timeout=10,
-                    )
+                cid = str(cb.get("message", {}).get("chat", {}).get("id"))
+                if not self._authorized(cid):
+                    logger.log(f"BLOCKED callback from unauthorized chat {cid}")
+                    continue
+                self.typing()
+                self.handle_callback(cb.get("data", ""), cb["message"]["message_id"])
+                requests.post(
+                    f"{self.api}/answerCallbackQuery",
+                    json={"callback_query_id": cb["id"]},
+                    timeout=10,
+                )
 
     def run(self):
         logger.log("BOT: started")
