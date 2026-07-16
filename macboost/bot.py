@@ -16,7 +16,10 @@ TEMP_ALERT = 80
 
 def _keyboard():
     kb = [
-        [{"text": "📊 Status", "callback_data": "status"}],
+        [
+            {"text": "📊 Status", "callback_data": "status"},
+            {"text": "ℹ️ Info", "callback_data": "info"},
+        ],
         [
             {"text": "🧹 Kill All", "callback_data": "killall"},
             {"text": "⏻ Shutdown", "callback_data": "shutdown"},
@@ -67,11 +70,41 @@ class Bot:
         return (
             "*MacBoost Bot*\n"
             "/status - laporan baterai/suhu/beban\n"
+            "/info - info detail laptop (storage, RAM, app, service, jaringan)\n"
             "/kill <app> - matikan app\n"
             "/killall - matikan app berat\n"
             "/shutdown - matikan Mac\n"
             "/restart - restart Mac\n"
             "Atau pakai tombol di bawah."
+        )
+
+    def info_text(self) -> str:
+        from . import collector
+        d = collector.collect_full()
+        apps = ", ".join(d["running_apps"][:15]) or "none"
+        if len(d["running_apps"]) > 15:
+            apps += f" …(+{len(d['running_apps'])-15})"
+        svcs = ", ".join(s.split(".")[-2] if "." in s else s
+                         for s in d["running_services"][:12]) or "none"
+        if len(d["running_services"]) > 12:
+            svcs += f" …(+{len(d['running_services'])-12})"
+        storage = "\n    • " + "\n    • ".join(d["storage"])
+        net = d["network"]
+        return (
+            f"ℹ️ *INFO LAPTOP*\n\n"
+            f"💻 CPU: {d['cpu']}\n"
+            f"🔋 Baterai: {d['battery_pct']}% ({d['battery_status']})\n"
+            f"   Cycle: {d['battery_cycle']} | Condition: {d['battery_condition']}\n"
+            f"🌡️ Suhu CPU: {d['cpu_temp_c']}°C\n"
+            f"📈 Load avg: {d['load_avg']}\n"
+            f"🧠 RAM: {d['ram']}\n"
+            f"💾 Storage:{storage}\n"
+            f"🌐 Network:\n"
+            f"   Interface: {net['interface']}\n"
+            f"   IP lokal: {net['local']}\n"
+            f"   IP publik: {net['public']}\n"
+            f"📱 App jalan ({len(d['running_apps'])}): {apps}\n"
+            f"⚙️ Service ({len(d['running_services'])}): {svcs}"
         )
 
     def handle_text(self, text: str):
@@ -83,6 +116,8 @@ class Bot:
             self.send(self.help_text(), _keyboard())
         elif cmd in ("/status", "status"):
             self.send(self.status_text(), _keyboard())
+        elif cmd in ("/info", "info"):
+            self.send(self.info_text(), _keyboard())
         elif cmd in ("/kill", "kill"):
             if not arg:
                 self.send("Pakai: `kill <nama app>`")
@@ -102,6 +137,8 @@ class Bot:
     def handle_callback(self, data: str):
         if data == "status":
             self.send(self.status_text(), _keyboard())
+        elif data == "info":
+            self.send(self.info_text(), _keyboard())
         elif data == "killall":
             self.send("🧹 " + collector.kill_all_heavy())
         elif data == "shutdown":

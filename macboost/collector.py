@@ -57,6 +57,113 @@ def get_load() -> str:
     return "?"
 
 
+def get_storage() -> list[str]:
+    """Return list baris 'size used avail capacity mount'."""
+    out = _run("df -h / /System/Volumes/Data 2>/dev/null")
+    lines = []
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 6:
+            lines.append(f"{parts[0]}: {parts[1]} used / {parts[3]} free ({parts[4]})")
+    return lines or ["?"]
+
+
+def get_ram() -> str:
+    out = _run("vm_stat")
+    # hitung page berdasarkan page size 4096
+    pages = {}
+    for line in out.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            v = "".join(filter(str.isdigit, v))
+            if v:
+                pages[k.strip()] = int(v)
+    ps = 4096
+    free = pages.get("Pages free", 0) + pages.get("Pages speculative", 0)
+    active = pages.get("Pages active", 0)
+    inactive = pages.get("Pages inactive", 0)
+    wired = pages.get("Pages wired down", 0)
+    comp = pages.get("Pages occupied by compressor", 0)
+    used = (active + inactive + wired + comp) * ps
+    free_b = free * ps
+    total = used + free_b
+    if total == 0:
+        return "?"
+    used_gb = used / (1024 ** 3)
+    total_gb = total / (1024 ** 3)
+    pct = int(used / total * 100)
+    return f"{used_gb:.1f} GB / {total_gb:.1f} GB ({pct}%)"
+
+
+def get_running_apps() -> list[str]:
+    """Aplikasi GUI yang jalan (from osascript)."""
+    out = _run('osascript -e "tell application \\"System Events\\" to get name of every process whose background only is false"')
+    return [a.strip() for a in out.replace(",", "\n").split("\n") if a.strip()]
+
+
+def get_running_services() -> list[str]:
+    """LaunchAgent + LaunchDaemon yang loaded."""
+    out = _run("launchctl list | grep -v '^-' | awk '{print $3}' | grep -v '^$'")
+    svcs = []
+    for s in out.splitlines():
+        s = s.strip()
+        if s and s != "Label":
+            svcs.append(s)
+    return svcs
+
+
+def get_network() -> dict:
+    """IP lokal (en0) + IP publik + interface aktif."""
+    local = _run("ipconfig getifaddr en0").strip() or _run("ipconfig getifaddr en1").strip() or "?"
+    # publik (timeout cepat)
+    pub = _run("curl -s --max-time 5 ifconfig.me").strip() or "?"
+    active_if = _run("route -n get default 2>/dev/null | awk '/interface:/{print $2}'").strip() or "?"
+    return {"local": local, "public": pub, "interface": active_if}
+
+
+def get_battery_detail() -> dict:
+    out = _run("system_profiler SPPowerDataType 2>/dev/null")
+    detail = {"cycle": "?", "condition": "?", "health": "?"}
+    for line in out.splitlines():
+        s = line.strip()
+        if s.startswith("Cycle Count"):
+            detail["cycle"] = s.split(":")[-1].strip()
+        elif s.startswith("Condition"):
+            detail["condition"] = s.split(":")[-1].strip()
+        elif "Maximum Capacity" in s or "State of Charge" in s:
+            detail["health"] = s.split(":")[-1].strip()
+    return detail
+
+
+def get_cpu_info() -> str:
+    out = _run("sysctl -n machdep.cpu.brand_string 2>/dev/null").strip()
+    return out or "?"
+
+
+def collect_full() -> dict:
+    m = collect()
+    apps = get_running_apps()
+    svcs = get_running_services()
+    net = get_network()
+    batt_d = get_battery_detail()
+    return {
+        "battery_pct": m.battery_pct,
+        "battery_status": m.battery_status,
+        "battery_cycle": batt_d["cycle"],
+        "battery_condition": batt_d["condition"],
+        "battery_health": batt_d["health"],
+        "cpu_temp_c": m.cpu_temp_c,
+        "cpu": get_cpu_info(),
+        "load_avg": m.load_avg,
+        "ram": get_ram(),
+        "storage": get_storage(),
+        "heavy_apps": m.heavy_apps,
+        "running_apps": apps,
+        "running_services": svcs,
+        "network": net,
+    }
+
+
 def app_running(name: str) -> bool:
     return _run(f'pgrep -f "{name}"').strip() != ""
 

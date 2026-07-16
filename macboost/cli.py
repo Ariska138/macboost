@@ -39,6 +39,17 @@ def main():
         print(f"Temp: {m.cpu_temp_c}C")
         print(f"Load: {m.load_avg}")
         print(f"Heavy apps: {m.heavy_apps}")
+    elif mode == "info":
+        d = collector.collect_full()
+        print(f"CPU: {d['cpu']}")
+        print(f"Battery: {d['battery_pct']}% {d['battery_status']} "
+              f"(cycle {d['battery_cycle']}, {d['battery_condition']})")
+        print(f"Temp: {d['cpu_temp_c']}C | Load: {d['load_avg']}")
+        print(f"RAM: {d['ram']}")
+        print(f"Storage: {d['storage']}")
+        print(f"Network: {d['network']}")
+        print(f"Apps ({len(d['running_apps'])}): {d['running_apps']}")
+        print(f"Services ({len(d['running_services'])}): {d['running_services']}")
     else:
         print("Usage: macboost [bot|web|status]")
 

@@ -42,6 +42,7 @@ chmod +x install.sh uninstall.sh
 
 Perintah di Telegram:
 - `/status` — laporan lengkap
+- `/info` — info detail laptop: CPU, baterai (cycle/condition), suhu, RAM, storage, network (IP lokal/publik), app jalan, service/daemon
 - `/kill <app>` — matikan app (misal `/kill OpenCode`)
 - `/killall` — matikan app berat (OpenCode, Brave, WhatsApp)
 - `/shutdown` — matikan Mac
