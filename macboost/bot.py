@@ -24,7 +24,7 @@ TEMP_ALERT = 80
 MAIN_KEYBOARD = {
     "keyboard": [
         ["📊 Status", "ℹ️ Info Laptop"],
-        ["🖥️ Monitoring App", "🧹 Kill App Berat"],
+        ["🖥️ Monitoring App", "🌡️ Analisa Panas"],
         ["🔄 Update", "⚙️ Kontrol"],
         ["📜 Logs", "❓ Help"],
     ],
@@ -241,7 +241,7 @@ class Bot:
             "*MacBoost Bot*\n"
             "Gunakan tombol menu di bawah untuk navigasi.\n"
             "Perintah cepat:\n"
-            "/status /info /monitor /update /logs /kill <app> /killall /shutdown /restart"
+            "/status /info /monitor /heat /update /logs /kill <app> /killall /shutdown /restart"
         )
 
     # ---------- menu actions (edit pesan terakhir) ----------
@@ -275,6 +275,10 @@ class Bot:
         self.processing()
         self.state = "monitor"
         self.edit_menu(collector.monitor_apps_text(), MONITOR_KEYBOARD)
+
+    def act_heat(self):
+        self.processing()
+        self.edit_menu(collector.heat_analysis_text(), BACK_KEYBOARD)
 
     def act_update(self):
         self.processing()
@@ -341,6 +345,8 @@ class Bot:
             logger.log("ACT: info"); self.act_info(); return
         if low in ("/monitor", "🖥️ monitoring app"):
             logger.log("ACT: monitor"); self.act_monitor(); return
+        if low in ("/heat", "🌡️ analisa panas"):
+            logger.log("ACT: heat"); self.act_heat(); return
         if low in ("/update", "🔄 update"):
             logger.log("ACT: update"); self.act_update(); return
         if low in ("/killall", "🧹 kill app berat"):

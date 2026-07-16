@@ -301,7 +301,70 @@ def restart() -> None:
     _run("sudo shutdown -r now")
 
 
-def sqlite_info(path: str) -> str:
+def top_cpu_processes(n: int = 8) -> list[tuple[str, float, float]]:
+    """Return list (nama, %cpu, rss_mb) proses pemakan CPU tertinggi.
+
+    Pakai `ps` (lebih stabil dari top snapshot) + ambil sample top berulang
+    untuk rata-rata CPU yang lebih akurat.
+    """
+    # ps: %cpu kumulatif sejak launch, urut desc
+    out = _run(f"ps -arcwwwxo command,%cpu,rss 2>/dev/null | head -n {n + 1}")
+    procs = []
+    for line in out.splitlines()[1:]:  # skip header
+        line = line.strip()
+        if not line:
+            continue
+        # pisahkan: command bisa mengandung spasi, ambil 2 kolom terakhir
+        parts = line.rsplit(None, 2)
+        if len(parts) < 3:
+            continue
+        name, cpu_str, rss_str = parts
+        try:
+            cpu = float(cpu_str)
+        except ValueError:
+            cpu = 0.0
+        try:
+            rss_mb = float(rss_str) / 1024
+        except ValueError:
+            rss_mb = 0.0
+        procs.append((name, cpu, rss_mb))
+    procs.sort(key=lambda x: x[1], reverse=True)
+    return procs[:n]
+
+
+def heat_analysis_text() -> str:
+    """Analisa penyebab panas: suhu + proses CPU tinggi + saran."""
+    temp = get_temp()
+    procs = top_cpu_processes(8)
+    heavy = [p for p in procs if p[1] >= 5.0]
+    lines = [f"🌡️ *ANALISA PANAS*\n", f"Suhu CPU: {temp:.1f}°C"]
+    if temp >= 90:
+        lines.append("Status: 🔴 SANGAT PANAS")
+    elif temp >= 80:
+        lines.append("Status: 🟠 PANAS")
+    elif temp >= 65:
+        lines.append("Status: 🟡 HANGAT")
+    else:
+        lines.append("Status: 🟢 NORMAL")
+    lines.append("")
+    lines.append("🔥 *Penyebab utama (CPU tinggi):*")
+    if heavy:
+        for name, cpu, _ in heavy:
+            lines.append(f"   • {name}: {cpu:.1f}% CPU")
+    else:
+        lines.append("   • (tidak ada proses >5% CPU — panas dari background/system)")
+    lines.append("")
+    # saran
+    if heavy:
+        tops = ", ".join(p[0] for p in heavy[:3])
+        lines.append(f"💡 Coba matikan: {tops}")
+        lines.append("   Ketik /kill <nama> atau tombol Kill Semua App.")
+    else:
+        lines.append("💡 Panas bukan dari app aktif — mungkin:")
+        lines.append("   • Charging sambil dipakai berat")
+        lines.append("   • Ventilasi tersumbat / fan macet")
+        lines.append("   • Background task sistem (Spotlight, Time Machine)")
+    return "\n".join(lines)
     """Ambil info ringkas SQLite DB: ukuran + jumlah tabel (bila sqlite3 ada)."""
     if not os.path.exists(path):
         return "tidak ada"
