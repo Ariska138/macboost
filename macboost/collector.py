@@ -232,8 +232,22 @@ PROTECTED_APPS = [
     "NotificationCenter",
     "ControlCenter",
     "TouchBarServer",
-    "OpenCode",  # jangan matikan host editor? opsional
+    "loginwindow",
+    "kernel_task",
+    "LaunchServices",
 ]
+
+
+def _is_protected(app: str) -> bool:
+    """Cek apakah app termasuk yang tidak boleh dikill (exact atau partial)."""
+    if app in PROTECTED_APPS:
+        return True
+    low = app.lower()
+    # jangan sentuh process sistem / bot
+    protected_substrings = ["macboost", "python", "cloudflared", "launchd",
+                             "kernel", "windowserver", "finder", "dock",
+                             "system", "loginwindow"]
+    return any(s in low for s in protected_substrings)
 
 
 def _self_names() -> set[str]:
@@ -258,22 +272,21 @@ def kill_all_apps() -> str:
     self_names = _self_names()
     killed = []
     for app in running:
-        if app in PROTECTED_APPS:
+        if _is_protected(app):
             continue
         if app in self_names:
-            continue
-        # jangan kill process yang merupakan bot ini
-        if "macboost" in app.lower():
             continue
         try:
             _run(f'osascript -e \'quit app "{app}"\'')
             killed.append(app)
         except Exception:
             pass
-    # fallback: pkill app yang masih jalan (exclude bot)
+    # fallback: pkill app yang masih jalan (exclude bot & sistem)
     import time
     time.sleep(2)
     for app in killed:
+        if _is_protected(app):
+            continue
         _run(f'pkill -f "{app}"')
     if killed:
         return "🧹 Dimatikan:\n" + "\n".join(f"• {a}" for a in killed)
