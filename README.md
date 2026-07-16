@@ -44,6 +44,8 @@ Perintah di Telegram:
 - `/status` — laporan lengkap
 - `/info` — info detail laptop: CPU, baterai (cycle/condition), suhu, RAM, storage, network (IP lokal/publik), app jalan, service/daemon
 - `/monitor` — monitoring aplikasi OpenCode, Brave Browser, & Zed (status ON/OFF, PID, CPU/RAM, info SQLite DB)
+- `/update` — cek update baru di repo GitHub (`origin/main`). Bot juga otomatis notifikasi tiap 5 menit kalau ada push baru
+- `/logs` — lihat log bot (maks 1000 baris) untuk debug saat bot tidak respon
 - `/kill <app>` — matikan app (misal `/kill OpenCode`)
 - `/killall` — matikan app berat (OpenCode, Brave, WhatsApp)
 - `/shutdown` — matikan Mac

@@ -11,6 +11,7 @@ import time
 import requests
 
 from . import collector
+from . import logger
 
 POLL_INTERVAL = 5
 COMMAND_TIMEOUT = 30
@@ -23,7 +24,7 @@ MAIN_KEYBOARD = {
         ["📊 Status", "ℹ️ Info Laptop"],
         ["🖥️ Monitoring App", "🧹 Kill App Berat"],
         ["🔄 Update", "⚙️ Kontrol"],
-        ["❓ Help"],
+        ["📜 Logs", "❓ Help"],
     ],
     "resize_keyboard": True,
     "one_time_keyboard": False,
@@ -86,7 +87,7 @@ class Bot:
             except Exception:
                 pass
         except Exception as e:
-            print(f"[send error] {e}")
+            logger.log(f"[send error] {e}")
 
     def edit(self, msg_id: int, text: str, reply_markup=None):
         data = {"chat_id": self.chat_id, "message_id": msg_id, "text": text, "parse_mode": "Markdown"}
@@ -95,7 +96,7 @@ class Bot:
         try:
             requests.post(f"{self.api}/editMessageText", json=data, timeout=10)
         except Exception as e:
-            print(f"[edit error] {e}")
+            logger.log(f"[edit error] {e}")
 
     def edit_menu(self, text: str, reply_markup):
         """Edit pesan menu terakhir (atau kirim baru jika belum ada)."""
@@ -180,7 +181,7 @@ class Bot:
             "*MacBoost Bot*\n"
             "Gunakan tombol menu di bawah untuk navigasi.\n"
             "Perintah cepat:\n"
-            "/status /info /monitor /update /kill <app> /killall /shutdown /restart"
+            "/status /info /monitor /update /logs /kill <app> /killall /shutdown /restart"
         )
 
     # ---------- menu actions (edit pesan terakhir) ----------
@@ -256,32 +257,37 @@ class Bot:
 
         # back selalu prioritas
         if t == "🔙 kembali":
+            logger.log("ACT: back")
             self.show_main()
             return
 
         if low in ("/start", "/help", "help", "❓ help"):
             self.show_main(self.help_text())
             return
+        if low in ("/logs", "📜 logs"):
+            logger.log("ACT: logs")
+            self.send("📜 *LOGS* (maks 1000 baris):\n" + logger.log_text(), MAIN_KEYBOARD)
+            return
         if low in ("/status", "📊 status"):
-            self.act_status(); return
+            logger.log("ACT: status"); self.act_status(); return
         if low in ("/info", "ℹ️ info laptop"):
-            self.act_info(); return
+            logger.log("ACT: info"); self.act_info(); return
         if low in ("/monitor", "🖥️ monitoring app"):
-            self.act_monitor(); return
+            logger.log("ACT: monitor"); self.act_monitor(); return
         if low in ("/update", "🔄 update"):
-            self.act_update(); return
+            logger.log("ACT: update"); self.act_update(); return
         if low in ("/killall", "🧹 kill app berat"):
-            self.act_killall(); return
+            logger.log("ACT: killall"); self.act_killall(); return
         if low in ("⚙️ kontrol",):
-            self.act_control(); return
+            logger.log("ACT: control"); self.act_control(); return
         if low in ("🔄 refresh", "/refresh"):
-            self.act_refresh(); return
+            logger.log("ACT: refresh"); self.act_refresh(); return
         if t == "⏻ shutdown":
-            self.ask_shutdown(); return
+            logger.log("ACT: shutdown"); self.ask_shutdown(); return
         if t == "🔄 restart":
-            self.do_restart(); self.show_main(); return
+            logger.log("ACT: restart"); self.do_restart(); self.show_main(); return
         if t == "🧹 kill semua app":
-            self.act_killall(); return
+            logger.log("ACT: killall"); self.act_killall(); return
         # kill <app> manual
         if low.startswith("/kill ") or t.lower().startswith("kill "):
             arg = t.split(" ", 1)[1].strip() if " " in t else ""
@@ -314,14 +320,16 @@ class Bot:
             )
             data = r.json()
         except Exception as e:
-            print(f"[poll error] {e}")
+            logger.log(f"[poll error] {e}")
             return
         for upd in data.get("result", []):
             self.offset = upd["update_id"] + 1
             if "message" in upd:
                 chat = upd["message"].get("chat", {})
                 if str(chat.get("id")) == self.chat_id:
-                    self.handle_text(upd["message"].get("text", ""))
+                    text = upd["message"].get("text", "")
+                    logger.log(f"RCV: {text}")
+                    self.handle_text(text)
             elif "callback_query" in upd:
                 cb = upd["callback_query"]
                 if str(cb.get("message", {}).get("chat", {}).get("id")) == self.chat_id:
@@ -333,6 +341,7 @@ class Bot:
                     )
 
     def run(self):
+        logger.log("BOT: started")
         self.send("🤖 *MacBoost aktif.*", MAIN_KEYBOARD)
         self.show_main()
         last_update_check = 0.0

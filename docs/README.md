@@ -9,6 +9,8 @@ Ringkasan dokumentasi repo ini.
   setting tampilan, tool monitoring Telegram, roadmap pengembangan.
 - [git-identity.md](git-identity.md) — setup multi-akun Git/SSH
   (ariska138 + finlup) otomatis per folder via `~/.ssh/config` + `includeIf`.
+- [logging.md](logging.md) — log berputar (maks 1000 baris) +
+  perintah `/logs` di Telegram untuk debug saat bot tidak respon.
 
 ## Quick Reference
 
