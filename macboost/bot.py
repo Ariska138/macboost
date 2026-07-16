@@ -15,7 +15,7 @@ import requests
 from . import collector
 from . import logger
 
-POLL_INTERVAL = 5
+POLL_INTERVAL = 1
 COMMAND_TIMEOUT = 30
 BATTERY_ALERT = 20
 TEMP_ALERT = 80
