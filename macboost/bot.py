@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import time
 
+import os
+import fcntl
 import requests
 
 from . import collector
@@ -64,6 +66,43 @@ CONFIRM_KB = {
 }
 
 
+LOCK_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".macboost.lock"
+)
+
+_lock_fd = None
+
+
+def acquire_lock() -> bool:
+    """Pastikan hanya 1 instance bot jalan via flock (auto-release saat mati).
+
+    Returns True jika berhasil mengambil lock, False jika instance lain sudah jalan.
+    """
+    global _lock_fd
+    try:
+        _lock_fd = open(LOCK_PATH, "w")
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd.write(str(os.getpid()))
+        _lock_fd.flush()
+        return True
+    except (OSError, IOError):
+        if _lock_fd:
+            _lock_fd.close()
+            _lock_fd = None
+        return False
+
+
+def release_lock() -> None:
+    global _lock_fd
+    if _lock_fd:
+        try:
+            fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+            _lock_fd.close()
+        except Exception:
+            pass
+        _lock_fd = None
+
+
 class Bot:
     def __init__(self, token: str, chat_id: str):
         self.token = token
@@ -92,18 +131,19 @@ class Bot:
             logger.log(f"[typing error] {e}")
 
     def processing(self):
-        """Edit/menu jadi pesan 'sedang memproses' + kirim indikator typing."""
+        """Kirim indikator typing sebagai tanda sedang memproses."""
         self.typing()
-        self.edit_menu("⏳ *Memproses...*", None)
 
-    def send(self, text: str, reply_markup=None, parse="Markdown"):
+    def send(self, text: str, reply_markup=None, parse="Markdown", update_last=True):
         data = {"chat_id": self.chat_id, "text": text, "parse_mode": parse}
         if reply_markup:
             data["reply_markup"] = reply_markup
         try:
             r = requests.post(f"{self.api}/sendMessage", json=data, timeout=10)
             try:
-                self._last_msg_id = r.json().get("result", {}).get("message_id")
+                mid = r.json().get("result", {}).get("message_id")
+                if update_last and mid:
+                    self._last_msg_id = mid
             except Exception:
                 pass
         except Exception as e:
@@ -114,16 +154,18 @@ class Bot:
         if reply_markup:
             data["reply_markup"] = reply_markup
         try:
-            requests.post(f"{self.api}/editMessageText", json=data, timeout=10)
+            r = requests.post(f"{self.api}/editMessageText", json=data, timeout=10)
+            if r.status_code != 200:
+                logger.log(f"[edit fail] {r.status_code} {r.text[:120]}")
+                return False
+            return True
         except Exception as e:
             logger.log(f"[edit error] {e}")
+            return False
 
     def edit_menu(self, text: str, reply_markup):
-        """Edit pesan menu terakhir (atau kirim baru jika belum ada)."""
-        if self._last_msg_id:
-            self.edit(self._last_msg_id, text, reply_markup)
-        else:
-            self.send(text, reply_markup)
+        """Kirim pesan menu baru (selalu) — guarantee respon, hindari edit gagal."""
+        self.send(text, reply_markup)
 
     def show_main(self, text: str = "📋 *MENU UTAMA* — pilih:"):
         self.state = "main"
@@ -136,17 +178,17 @@ class Bot:
     def check_alerts(self):
         m = collector.collect()
         if 0 < m.battery_pct <= BATTERY_ALERT and m.battery_pct < self._last_battery:
-            self.send(f"⚠️ *BATTERAI RENDAH*: {m.battery_pct}% ({m.battery_status})")
+            self.send(f"⚠️ *BATTERAI RENDAH*: {m.battery_pct}% ({m.battery_status})", update_last=False)
         self._last_battery = m.battery_pct
         if m.cpu_temp_c >= TEMP_ALERT and m.cpu_temp_c > self._last_temp:
-            self.send(f"🌡️ *SUHU PANAS*: {m.cpu_temp_c}°C")
+            self.send(f"🌡️ *SUHU PANAS*: {m.cpu_temp_c}°C", update_last=False)
         self._last_temp = m.cpu_temp_c
 
     def check_update(self):
         try:
             res = collector.check_update()
         except Exception as e:
-            print(f"[update check error] {e}")
+            logger.log(f"[update check error] {e}")
             return
         if res["behind"]:
             summary = collector.update_summary()
@@ -154,7 +196,8 @@ class Bot:
                 f"📦 *UPDATE TERSEDIA*\n"
                 f"{res['commits']} commit baru di remote:\n"
                 f"```{summary}```\n"
-                f"Jalankan `git pull` di Mac untuk update."
+                f"Jalankan `git pull` di Mac untuk update.",
+                update_last=False,
             )
 
     # ---------- text builders ----------
@@ -383,15 +426,21 @@ class Bot:
                 )
 
     def run(self):
-        logger.log("BOT: started")
-        self.send("🤖 *MacBoost aktif.*", MAIN_KEYBOARD)
-        self.show_main()
-        last_update_check = 0.0
-        while True:
-            self.check_alerts()
-            now = time.time()
-            if now - last_update_check >= 300:  # cek update tiap 5 menit
-                self.check_update()
-                last_update_check = now
-            self.poll()
-            time.sleep(POLL_INTERVAL)
+        if not acquire_lock():
+            logger.log("BOT: lock gagal, instance lain sudah jalan. Exit.")
+            return
+        try:
+            logger.log("BOT: started")
+            self.send("🤖 *MacBoost aktif.*", MAIN_KEYBOARD)
+            self.show_main()
+            last_update_check = 0.0
+            while True:
+                self.check_alerts()
+                now = time.time()
+                if now - last_update_check >= 300:  # cek update tiap 5 menit
+                    self.check_update()
+                    last_update_check = now
+                self.poll()
+                time.sleep(POLL_INTERVAL)
+        finally:
+            release_lock()
